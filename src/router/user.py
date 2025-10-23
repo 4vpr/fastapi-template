@@ -3,19 +3,17 @@ from tortoise.exceptions import DoesNotExist
 
 from src.model.schema.token import (
     TokenRefreshRequest,
-    TokenRefreshResponse,
     TokenResponse,
 )
+import config
 from src.model.schema.user import UserCreate, UserLogin, UserResponse
 from src.model.user import User
-from src.tools.jwt import issue_tokens_for_user, refresh_access_token, get_user_from_token
-
+from src.tools.jwt import get_current_user, create_access_token, create_refresh_token, decode_token
 router = APIRouter(
     prefix="/user",
     tags=["user"],
     responses={404: {"description": "Not found"}},
 )
-
 
 @router.post("/login", response_model=TokenResponse)
 async def login(user_login: UserLogin):
@@ -27,20 +25,30 @@ async def login(user_login: UserLogin):
     if not user.verify_password(user_login.password):
         raise HTTPException(status_code=400, detail="Invalid login ID or password")
 
-    tokens = issue_tokens_for_user(user)
-    return TokenResponse(**tokens)
+    access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token(user.id)
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in= config.jwt_access_min * 60,
+        refresh_expires_in=config.jwt_refresh_day * 24 * 60 * 60
+    )
 
-@router.post("/refresh", response_model=TokenRefreshResponse)
+@router.post("/refresh", response_model=TokenResponse)
 async def refresh_tokens(request: TokenRefreshRequest):
-    try:
-        access_token = await refresh_access_token(request.refresh_token)
-    except ValueError as exc:
-        raise HTTPException(status_code=401, detail=str(exc))
+    token_config = decode_token(request.refresh_token, expected_type="refresh")
+    access_token = create_access_token(token_config.id, scopes=token_config.scopes)
+    refresh_token = create_refresh_token(token_config.id, scopes=token_config.scopes)
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=config.jwt_access_min * 60,
+        refresh_expires_in=config.jwt_refresh_day * 24 * 60 * 60
+    )
 
-    return TokenRefreshResponse(access_token=access_token)
 
 @router.post("/me", response_model=UserResponse)
-async def get_current_user(user: User = Depends(get_user_from_token)):
+async def get_current_user(user: User = Depends(get_current_user)):
     return UserResponse(
         id=user.id,
         username=user.username,

@@ -1,73 +1,88 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-import jwt
-from jwt import ExpiredSignatureError, InvalidTokenError
-from tortoise.exceptions import DoesNotExist
+from datetime import datetime, timedelta
+from typing import List, Optional
 
-from config import jwt_access_min, jwt_algorithm, jwt_refresh_day, jwt_secret_key
 from src.model.user import User
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
+from pydantic import BaseModel
+import config
 
-_ACCESS = "access"
-_REFRESH = "refresh"
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/users/login")
 
-def _generate_token(user_id: int, token_type: str, expires_delta: timedelta) -> str:
-    now = datetime.now(timezone.utc)
-    payload = {
-        "sub": user_id,
+class _TokenPayload(BaseModel):
+    sub: str
+    type: str
+    scopes: List[str] = []
+    exp: int
+
+class _TokenConfig(BaseModel):
+    id: int
+    scopes: List[str]
+
+def _create_token(*, id: int, scopes: Optional[List[str]] = None, minutes: int, token_type: str) -> str:
+    to_encode = {
+        "sub": str(id),
         "type": token_type,
-        "iat": int(now.timestamp()),
-        "exp": int((now + expires_delta).timestamp()),
+        "scopes": scopes or [],
+        "exp": datetime.now() + timedelta(minutes=minutes),
     }
-    token = jwt.encode(payload, jwt_secret_key, algorithm=jwt_algorithm)
-    return token if isinstance(token, str) else token.decode()
+    return jwt.encode(to_encode, config.jwt_secret_key, algorithm=config.jwt_algorithm)
 
+def create_access_token(id: int, scopes: Optional[List[str]] = None) -> str:
+    return _create_token(
+        id=id,
+        scopes=scopes,
+        minutes=config.jwt_access_min,
+        token_type="access",
+    )
 
-def issue_tokens_for_user(user: User) -> dict[str, str]:
-    return {
-        "access_token": _generate_token(user.id, _ACCESS, timedelta(minutes=jwt_access_min)),
-        "refresh_token": _generate_token(user.id, _REFRESH, timedelta(days=jwt_refresh_day)),
-    }
+def create_refresh_token(id:int, scopes: Optional[List[str]] = None) -> str:
+    return _create_token(
+        id=id,
+        scopes=scopes,
+        minutes=config.jwt_refresh_day * 24 * 60,
+        token_type="refresh",
+    )
 
-
-def decode_token(token: str, expected_type: str | None = None) -> dict:
+def decode_jwt(token: str) -> _TokenPayload:
     try:
-        payload = jwt.decode(token, jwt_secret_key, algorithms=[jwt_algorithm])
-    except ExpiredSignatureError as exc:
-        raise ValueError("Token has expired") from exc
-    except InvalidTokenError as exc:
-        raise ValueError("Token is invalid") from exc
+        data = jwt.decode(token, config.jwt_secret_key, algorithms=[config.jwt_algorithm])
+        return _TokenPayload.model_validate(data)
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    token_type = payload.get("type")
-    if expected_type is not None and token_type != expected_type:
-        raise ValueError(f"Token must be of type '{expected_type}'")
-
-    return payload
-
-
-async def get_user_from_token(token: str, expected_type: str | None = None) -> User:
-    payload = decode_token(token, expected_type)
-    user_id = payload.get("sub")
-    if user_id is None:
-        raise ValueError("Token payload missing subject")
-
+def decode_token(token: str, expected_type: str) -> _TokenConfig:
+    payload = decode_jwt(token)
+    if payload.type != expected_type:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token type",
+        )
     try:
-        return await User.get(id=user_id)
-    except DoesNotExist as exc:
-        raise ValueError("User not found for token") from exc
+        user_id = int(payload.sub)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return _TokenConfig(id=user_id, scopes=payload.scopes)
 
-
-async def refresh_access_token(refresh_token: str) -> str:
-    payload = decode_token(refresh_token, _REFRESH)
-    user_id = payload.get("sub")
-    if user_id is None:
-        raise ValueError("Token payload missing subject")
-
-    # ensure the user still exists
-    try:
-        await User.get(id=user_id)
-    except DoesNotExist as exc:
-        raise ValueError("User not found for token") from exc
-
-    return _generate_token(user_id, _ACCESS, timedelta(minutes=jwt_access_min))
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
+    token_config = decode_token(token, expected_type="access")
+    result = await User.filter(id=token_config.id).first()
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return result
