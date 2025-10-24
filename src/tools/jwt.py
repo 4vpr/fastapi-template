@@ -3,15 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from src.model.user import User
+from src.model.users import User
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel
 import config
 
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/users/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/users/login")
 
 class _TokenPayload(BaseModel):
     sub: str
@@ -48,19 +47,16 @@ def create_refresh_token(id:int, scopes: Optional[List[str]] = None) -> str:
         token_type="refresh",
     )
 
-def decode_jwt(token: str) -> _TokenPayload:
+def decode_token(token: str, expected_type: str) -> _TokenConfig:
+    payload: _TokenPayload
     try:
-        data = jwt.decode(token, config.jwt_secret_key, algorithms=[config.jwt_algorithm])
-        return _TokenPayload.model_validate(data)
+        payload =  jwt.decode(token, config.jwt_secret_key, algorithms=[config.jwt_algorithm])
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-def decode_token(token: str, expected_type: str) -> _TokenConfig:
-    payload = decode_jwt(token)
     if payload.type != expected_type:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

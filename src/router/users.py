@@ -7,10 +7,10 @@ from src.model.schema.token import (
 )
 import config
 from src.model.schema.user import UserCreate, UserLogin, UserResponse
-from src.model.user import User
+from src.model.users import User
 from src.tools.jwt import get_current_user, create_access_token, create_refresh_token, decode_token
 router = APIRouter(
-    prefix="/user",
+    prefix="/api/v1/users",
     tags=["user"],
     responses={404: {"description": "Not found"}},
 )
@@ -18,7 +18,7 @@ router = APIRouter(
 @router.post("/login", response_model=TokenResponse)
 async def login(user_login: UserLogin):
     try:
-        user = await User.get(login_id=user_login.login_id)
+        user: User = await User.get(login_id=user_login.login_id)
     except DoesNotExist:
         raise HTTPException(status_code=400, detail="Invalid login ID or password")
 
@@ -45,7 +45,6 @@ async def refresh_tokens(request: TokenRefreshRequest):
         expires_in=config.jwt_access_min * 60,
         refresh_expires_in=config.jwt_refresh_day * 24 * 60 * 60
     )
-
 
 @router.post("/me", response_model=UserResponse)
 async def get_current_user(user: User = Depends(get_current_user)):

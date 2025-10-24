@@ -3,16 +3,19 @@ from hashlib import sha256
 from passlib.context import CryptContext
 from tortoise import fields
 from tortoise.models import Model
+import typing
 
 from config import password_salt
-from src.model.post import Post
+
+if typing.TYPE_CHECKING:
+    from src.model.posts import Post
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
-
 class User(Model):
+    
     id = fields.IntField(pk=True)
-    username = fields.CharField(max_length=50)
+    username = fields.CharField(max_length=50) # 사용자 이름 (중복가능)
     created_at = fields.DatetimeField(auto_now_add=True)
     login_id = fields.CharField(max_length=50, unique=True)
     hash_password = fields.CharField(max_length=255)
@@ -23,6 +26,12 @@ class User(Model):
     def __str__(self) -> str:
         return self.username
 
+    def _get_percentage_of_posts(self) -> float:
+        expected_posts = self.created_at.date().toordinal()
+        if expected_posts == 0:
+            return 0.0
+        return (self.number_of_posts / expected_posts) * 100
+    
     def _salt_password(self, password: str) -> str:
         salted = f"{password}{password_salt}".encode("utf-8")
         return sha256(salted).hexdigest()
