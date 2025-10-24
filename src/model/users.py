@@ -9,6 +9,7 @@ from config import password_salt
 
 if typing.TYPE_CHECKING:
     from src.model.posts import Post
+    from src.model.bookmarks import Bookmark
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
@@ -22,6 +23,8 @@ class User(Model):
 
     number_of_posts = fields.IntField(default=0)
     posts = fields.ReverseRelation["Post"]
+
+    bookmarks: fields.ReverseRelation["Bookmark"]
 
     def __str__(self) -> str:
         return self.username

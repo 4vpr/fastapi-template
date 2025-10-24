@@ -1,7 +1,7 @@
 from tortoise import fields
 from tortoise.models import Model
-from src.model.users import User
 
+from src.model.users import User
 
 # 일기 게시글 모델
 class Post(Model):
