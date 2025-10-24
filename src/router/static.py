@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 
 STATIC_ROOT = Path(__file__).resolve().parent.parent / "static"
 STATIC_HTML_DIR = STATIC_ROOT / "html"
-STATIC_DIR = STATIC_ROOT / "src"
+STATIC_DIR = STATIC_ROOT / "ast"
 STATIC_RESPONSE_DIR = STATIC_ROOT / "response"
 INDEX_FILE = STATIC_HTML_DIR / "index.html"
 NOT_FOUND_FILE = STATIC_RESPONSE_DIR / "404.html"
@@ -16,7 +16,7 @@ router = APIRouter(tags=["static"], include_in_schema=False)
 async def serve_index():
     return FileResponse(INDEX_FILE)
 
-@router.get("/src/{asset_path:path}")
+@router.get("/ast/{asset_path:path}")
 async def serve_asset(asset_path: str):
     asset_file = STATIC_DIR / asset_path
     if not asset_file.exists():
